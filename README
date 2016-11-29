@@ -1,27 +1,44 @@
-ex27: Shaders
+Depth of Field Simulation
 
-Willem A. (Vlakkies) Schreuder
+Jianxiang Fan
 CSCI4229/5229 Fall 2016
 
-Demonstrate shaders:
-Simple shaders
-Vertex lighting
-Procedural textures
-Toon shader
-Pixel lighting
-Textured lookup
-
-Key bindings
-  m/M        Cycle through shaders
-  x/X        Increase/decrease mandelbrot X-value
-  y/Y        Increase/decrease mandelbrot Y-value
-  z/Z        Zoom in/out of mandelbrot
-  o/O        Cycle through objects
+>> Key bindings
   p/P        Toggle between orthogonal & perspective projections
-  s/S        Start/stop light movement
   -/+        Decrease/increase light elevation
-  a          Toggle axes
   arrows     Change view angle
   PgDn/PgUp  Zoom in and out
   0          Reset view angle
   ESC        Exit
+
+>> How to run?
+
+$ make
+$ ./dof
+
+>> Proposed works and the Progresses
+
+1. Create a scene containing multiple objects with lighting and textures. (Done)
+
+OBJ files:
+https://github.com/OpenGLInsights/OpenGLInsightsCode/tree/master/Chapter%2015%20Depth%20of%20Field%20with%20Bokeh%20Rendering/resources/models/tank
+
+
+2. Post-processing effects (Done)
+
+(1) Create a color texture and a depth texture
+(2) Attach them to the framebuffer object (FBO).
+(3) Render the scene to the color texture and render depth buffer to the depth texture.
+(4) Pass the textures to the shader
+
+
+3. DoF shader (Done)
+
+Reference:
+OpenGL Insights - Chapter 15: Depth of Field with Bokeh Rendering
+https://blenderartists.org/forum/showthread.php?237488
+https://en.wikibooks.org/wiki/OpenGL_Programming/Post-Processing
+
+
+4. Allow the user to change more parameters, such as the camera's focal length, aperture and focusing distance,
+to see real-time DoF changes. (TODO)

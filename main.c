@@ -1,24 +1,9 @@
 /*
- *  Shaders
- *
- *  Demonstrate shaders:
- *    Simple shaders
- *    Vertex lighting
- *    Procedural textures
- *    Toon shader
- *    Pixel lighting
- *    Textured lookup
+ *  Depth of field shader
  *
  *  Key bindings:
- *  m/M        Cycle through shaders
- *  x/X        Increase/decrease mandelbrot X-value
- *  y/Y        Increase/decrease mandelbrot Y-value
- *  z/Z        Zoom in/out of mandelbrot
- *  o/O        Cycle through objects
  *  p/P        Toggle between orthogonal & perspective projections
- *  s/S        Start/stop light movement
  *  -/+        Decrease/increase light elevation
- *  a          Toggle axes
  *  arrows     Change view angle
  *  PgDn/PgUp  Zoom in and out
  *  0          Reset view angle
@@ -27,48 +12,47 @@
 
 #include "CSCIx229.h"
 
-int axes = 1;       //  Display axes
-int mode = 6;       //  Shader mode
-int move = 1;       //  Move light
-int roll = 1;       //  Rolling brick texture
 int proj = 1;       //  Projection type
-int obj = 1;        //  Object
-int th = 0;         //  Azimuth of view angle
-int ph = 0;         //  Elevation of view angle
+int th = -175;         //  Azimuth of view angle
+int ph = 5;         //  Elevation of view angle
 int fov = 55;       //  Field of view (for perspective)
 double asp = 1;     //  Aspect ratio
-double dim = 3.0;   //  Size of world
-int zh = 90;        //  Light azimuth
+double dim = 5.5;   //  Size of world
 int tank = 0;       //  Object
-float Ylight = 2;   //  Light elevation
-#define MODE 7
-GLuint shader[MODE] = {0, 0, 0, 0, 0, 0, 0}; //  Shader programs
-char *text[] = {"Constant Color", "Lighting", "Brick", "Mandelbrot Set", "Toon Shader", "Pixel Lighting",
-                "Textures"};
-float X = 0, Y = 0, Z = 1; //  Mandelbrot X,Y,Z
+float Ylight = 30;   //  Light elevation
+GLuint texture_shader; //  Shader programs
 
-GLuint post_shader;
-GLuint attribute_v_coord, uniform_fbo_texture;
+GLuint postproc_shader;
+GLuint attribute_v_coord, uniform_color_texture, uniform_depth_texture;
 
-GLuint fbo, fbo_texture, rbo_depth;
+GLuint fbo, color_texture, depth_texture, rbo_depth;
 GLuint vbo_fbo_vertices;
 
 int screen_width = 800, screen_height = 600;
 
 int init_resources()
 {
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
     glActiveTexture(GL_TEXTURE1);
-    glEnable(GL_TEXTURE_2D);
-    glGenTextures(1, &fbo_texture);
-    glBindTexture(GL_TEXTURE_2D, fbo_texture);
+    glGenTextures(1, &color_texture);
+    glBindTexture(GL_TEXTURE_2D, color_texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screen_width, screen_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glDisable(GL_TEXTURE_2D);
-    glActiveTexture(GL_TEXTURE0);
+
+    glActiveTexture(GL_TEXTURE2);
+    glGenTextures(1, &depth_texture);
+    glBindTexture(GL_TEXTURE_2D, depth_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, screen_width, screen_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+                 NULL);
 
     /* Depth buffer */
     glGenRenderbuffers(1, &rbo_depth);
@@ -77,10 +61,8 @@ int init_resources()
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
     /* Framebuffer to link everything together */
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fbo_texture, 0);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rbo_depth);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_texture, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth_texture, 0);
     GLenum status;
     if ((status = glCheckFramebufferStatus(GL_FRAMEBUFFER)) != GL_FRAMEBUFFER_COMPLETE) {
         return 0;
@@ -97,16 +79,18 @@ int init_resources()
     glBindBuffer(GL_ARRAY_BUFFER, vbo_fbo_vertices);
     glBufferData(GL_ARRAY_BUFFER, sizeof(fbo_vertices), fbo_vertices, GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glActiveTexture(GL_TEXTURE0);
     return 1;
 }
 
 void free_resources()
 {
     glDeleteRenderbuffers(1, &rbo_depth);
-    glDeleteTextures(1, &fbo_texture);
+    glDeleteTextures(1, &color_texture);
     glDeleteFramebuffers(1, &fbo);
     glDeleteBuffers(1, &vbo_fbo_vertices);
-    glDeleteProgram(post_shader);
+    glDeleteProgram(postproc_shader);
 }
 
 /*
@@ -116,13 +100,14 @@ void display()
 {
     //  Light position and colors
     float Emission[] = {0.0, 0.0, 0.0, 1.0};
-    float Ambient[] = {0.3, 0.3, 0.3, 1.0};
+    float Ambient[] = {1.0, 1.0, 1.0, 1.0};
     float Diffuse[] = {1.0, 1.0, 1.0, 1.0};
     float Specular[] = {1.0, 1.0, 1.0, 1.0};
-    float Position[] = {2 * Cos(zh), Ylight, 2 * Sin(zh), 1.0};
+    float Position[] = {-10.0f, Ylight, -10.0f, 1.0};
     float Shinyness[] = {16};
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    //glBindFramebuffer(GL_FRAMEBUFFER, depth_fbo);
 
     //  Erase the window and the depth buffer
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -144,12 +129,6 @@ void display()
         glRotatef(th, 0, 1, 0);
     }
 
-    //  Draw light position as sphere (still no lighting here)
-    glColor3f(1, 1, 1);
-    glPushMatrix();
-    glTranslated(Position[0], Position[1], Position[2]);
-    glutSolidSphere(0.03, 10, 10);
-    glPopMatrix();
     //  OpenGL should normalize normal vectors
     glEnable(GL_NORMALIZE);
     //  Enable lighting
@@ -173,20 +152,8 @@ void display()
     //  Draw scene
     //
     //  Select shader (0 => no shader)
-    glUseProgram(shader[mode]);
-    //  For brick shader set "uniform" variables
-    if (mode > 0) {
-        int id;
-        float time = roll ? 0.001 * glutGet(GLUT_ELAPSED_TIME) : 0;
-        id = glGetUniformLocation(shader[mode], "Xcenter");
-        if (id >= 0) glUniform1f(id, X);
-        id = glGetUniformLocation(shader[mode], "Ycenter");
-        if (id >= 0) glUniform1f(id, Y);
-        id = glGetUniformLocation(shader[mode], "Zoom");
-        if (id >= 0) glUniform1f(id, Z);
-        id = glGetUniformLocation(shader[mode], "time");
-        if (id >= 0) glUniform1f(id, time);
-    }
+    glUseProgram(texture_shader);
+
     //  Draw the teapot or cube
     glColor3f(0, 1, 1);
     glEnable(GL_TEXTURE_2D);
@@ -197,12 +164,17 @@ void display()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glUseProgram(post_shader);
+    glUseProgram(postproc_shader);
+
+    glUniform1i(uniform_color_texture, /*GL_TEXTURE*/1);
+    glUniform1i(uniform_depth_texture, /*GL_TEXTURE*/2);
+
     glActiveTexture(GL_TEXTURE1);
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, fbo_texture);
-    glUniform1i(uniform_fbo_texture, /*GL_TEXTURE*/1);
-    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, color_texture);
+
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, depth_texture);
+
     glActiveTexture(GL_TEXTURE0);
 
     glEnableVertexAttribArray(attribute_v_coord);
@@ -224,12 +196,8 @@ void display()
 
     //  Display parameters
     glWindowPos2i(5, 5);
-    Print("Angle=%d,%d  Dim=%.1f Projection=%s Mode=%s",
-          th, ph, dim, proj ? "Perpective" : "Orthogonal", text[mode]);
-    if (mode == 4) {
-        glWindowPos2i(5, 25);
-        Print("X=%f Y=%f Z=%f Mag=%f", X, Y, Z, 1 / Z);
-    }
+    Print("Angle=%d,%d  Dim=%.1f Projection=%s",
+          th, ph, dim, proj ? "Perpective" : "Orthogonal");
     //  Render the scene and make it visible
     ErrCheck("display");
     glFlush();
@@ -241,9 +209,6 @@ void display()
  */
 void idle()
 {
-    //  Elapsed time in seconds
-    double t = glutGet(GLUT_ELAPSED_TIME) / 1000.0;
-    if (move) zh = fmod(90 * t, 360.0);
     //  Tell GLUT it is necessary to redisplay the scene
     glutPostRedisplay();
 }
@@ -291,48 +256,14 @@ void key(unsigned char ch, int x, int y)
         //  Reset view angle
     else if (ch == '0')
         th = ph = 0;
-        //  Toggle axes
-    else if (ch == 'a' || ch == 'A')
-        axes = 1 - axes;
         //  Toggle projection type
     else if (ch == 'p' || ch == 'P')
         proj = 1 - proj;
-        //  Toggle light movement
-    else if (ch == 's' || ch == 'S')
-        move = 1 - move;
-        //  Toggle brick movement
-    else if (ch == 'b' || ch == 'B')
-        roll = 1 - roll;
-        //  Toggle objects
-    else if (ch == 'o' || ch == 'O')
-        obj = (obj + 1) % 2;
-        //  Cycle modes
-    else if (ch == 'm')
-        mode = (mode + 1) % MODE;
-    else if (ch == 'M')
-        mode = (mode + MODE - 1) % MODE;
         //  Light elevation
     else if (ch == '+')
-        Ylight += 0.1;
+        Ylight += 1;
     else if (ch == '-')
-        Ylight -= 0.1;
-        //  Mandelbrot
-    else if (ch == 'x')
-        X += 0.01 * Z;
-    else if (ch == 'X')
-        X -= 0.01 * Z;
-    else if (ch == 'y')
-        Y += 0.01 * Z;
-    else if (ch == 'Y')
-        Y -= 0.01 * Z;
-    else if (ch == 'z')
-        Z *= 0.9;
-    else if (ch == 'Z')
-        Z *= 1.1;
-    else if (ch == 'r' || ch == 'R') {
-        X = Y = 0;
-        Z = 1;
-    }
+        Ylight -= 1;
     //  Reproject
     Project(proj ? fov : 0, asp, dim);
     //  Tell GLUT it is necessary to redisplay the scene
@@ -355,11 +286,12 @@ void reshape(int width, int height)
     Project(proj ? fov : 0, asp, dim);
 
     glActiveTexture(GL_TEXTURE1);
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, fbo_texture);
+    glBindTexture(GL_TEXTURE_2D, color_texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screen_width, screen_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glBindTexture(GL_TEXTURE_2D, depth_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, screen_width, screen_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+                 NULL);
     glBindTexture(GL_TEXTURE_2D, 0);
-    glDisable(GL_TEXTURE_2D);
     glActiveTexture(GL_TEXTURE0);
 
     glBindRenderbuffer(GL_RENDERBUFFER, rbo_depth);
@@ -498,28 +430,27 @@ int main(int argc, char *argv[])
     glutIdleFunc(idle);
 
     //  Load object
-    tank = LoadOBJ(argv[1]);
+    tank = LoadOBJ("./models/tank/tank.obj");
 
     //  Create Shader Programs
-    shader[0] = CreateShaderProg("simple.vert", "simple.frag");
-    shader[1] = CreateShaderProg("phong.vert", "phong.frag");
-    shader[2] = CreateShaderProg("model.vert", "brick.frag");
-    shader[3] = CreateShaderProg("model.vert", "mandel.frag");
-    shader[4] = CreateShaderProg("toon.vert", "toon.frag");
-    shader[5] = CreateShaderProg("pixlight.vert", "pixlight.frag");
-    shader[6] = CreateShaderProg("texture.vert", "texture.frag");
+    texture_shader = CreateShaderProg("texture.vert", "texture.frag");
+    postproc_shader = CreateShaderProg("postproc.vert", "postproc.frag");
 
-    post_shader = CreateShaderProg("postproc.v.glsl", "postproc.f.glsl");
-
-    attribute_v_coord = glGetAttribLocation(post_shader, "v_coord");
+    attribute_v_coord = glGetAttribLocation(postproc_shader, "v_coord");
     if (attribute_v_coord == -1) {
         fprintf(stderr, "Could not bind attribute v_coord\n");
         return 0;
     }
 
-    uniform_fbo_texture = glGetUniformLocation(post_shader, "fbo_texture");
-    if (uniform_fbo_texture == -1) {
-        fprintf(stderr, "Could not bind uniform fbo_texture\n");
+    uniform_color_texture = glGetUniformLocation(postproc_shader, "color_texture");
+    if (uniform_color_texture == -1) {
+        fprintf(stderr, "Could not bind uniform color_texture\n");
+        return 0;
+    }
+
+    uniform_depth_texture = glGetUniformLocation(postproc_shader, "depth_texture");
+    if (uniform_depth_texture == -1) {
+        fprintf(stderr, "Could not bind uniform depth_texture\n");
         return 0;
     }
 

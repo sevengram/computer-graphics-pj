@@ -1,4 +1,3 @@
-# Example 27
 EXE=dof
 
 # Main target
