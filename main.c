@@ -2,33 +2,52 @@
  *  Depth of field shader
  *
  *  Key bindings:
- *  p/P        Toggle between orthogonal & perspective projections
- *  -/+        Decrease/increase light elevation
+ *  p/P        Toggle between perspective/orthogonal/First Person projections
+ *
+ *
  *  arrows     Change view angle
- *  PgDn/PgUp  Zoom in and out
  *  0          Reset view angle
  *  ESC        Exit
  */
 
 #include "CSCIx229.h"
 
-int proj = 1;       //  Projection type
-int th = -175;         //  Azimuth of view angle
+int mode = 1;       //  Projection type (0-Perspective 1-First Person)
+int th = -175;      //  Azimuth of view angle
 int ph = 5;         //  Elevation of view angle
-int fov = 55;       //  Field of view (for perspective)
 double asp = 1;     //  Aspect ratio
-double dim = 5.5;   //  Size of world
 int tank = 0;       //  Object
-float Ylight = 30;   //  Light elevation
 GLuint texture_shader; //  Shader programs
 
 GLuint postproc_shader;
-GLuint attribute_v_coord, uniform_color_texture, uniform_depth_texture;
+GLint attribute_v_coord, uniform_color_texture, uniform_depth_texture;
+GLint uniform_focal_depth, uniform_focal_length, uniform_fstop;
+GLint uniform_screen_width, uniform_screen_height;
 
 GLuint fbo, color_texture, depth_texture, rbo_depth;
 GLuint vbo_fbo_vertices;
 
-int screen_width = 800, screen_height = 600;
+int screen_width = 800;
+int screen_height = 600;
+
+float unit = 10.0; // unit length is 10mm
+
+double fp_ex = 45.0;
+double fp_ey = 40.0;
+double fp_ez = -180.0;
+int fp_th = 165; // Azimuth of view angle for first person
+int fp_ph = 0; // Elevation of view angle for first person
+
+float filmY = 48;
+
+float focalDepth = 200;  //focal distance value in meters, but you may use autofocus option below
+float focalLength = 50; //focal length in mm
+float fstop = 2.8; //f-stop value
+
+double fov(double fl)
+{
+    return 2 * atan(filmY / 2 / fl) * 180 / PI;
+}
 
 int init_resources()
 {
@@ -103,7 +122,7 @@ void display()
     float Ambient[] = {1.0, 1.0, 1.0, 1.0};
     float Diffuse[] = {1.0, 1.0, 1.0, 1.0};
     float Specular[] = {1.0, 1.0, 1.0, 1.0};
-    float Position[] = {-10.0f, Ylight, -10.0f, 1.0};
+    float Position[] = {-50.0f, 100.0f, -50.0f, 1.0};
     float Shinyness[] = {16};
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -116,17 +135,21 @@ void display()
     glEnable(GL_DEPTH_TEST);
     //  Undo previous transformations
     glLoadIdentity();
+    double vx, vy, vz;
+    double Ex, Ey, Ez;
+    vx = vy = vz = 0.0;
+
     //  Perspective - set eye position
-    if (proj) {
-        double Ex = -2 * dim * Sin(th) * Cos(ph);
-        double Ey = +2 * dim * Sin(ph);
-        double Ez = +2 * dim * Cos(th) * Cos(ph);
+    if (mode == 0) {
+        Ex = -100 * Sin(th) * Cos(ph);
+        Ey = +100 * Sin(ph);
+        Ez = +100 * Cos(th) * Cos(ph);
         gluLookAt(Ex, Ey, Ez, 0, 0, 0, 0, Cos(ph), 0);
-    }
-        //  Orthogonal - set world orientation
-    else {
-        glRotatef(ph, 1, 0, 0);
-        glRotatef(th, 0, 1, 0);
+    } else {
+        vx = fp_ex - Sin(fp_th);
+        vy = fp_ey + Sin(fp_ph);
+        vz = fp_ez - Cos(fp_th);
+        gluLookAt(fp_ex, fp_ey, fp_ez, vx, vy, vz, 0, 1, 0);
     }
 
     //  OpenGL should normalize normal vectors
@@ -156,9 +179,15 @@ void display()
 
     //  Draw the teapot or cube
     glColor3f(0, 1, 1);
+    glPushMatrix();
+
+    glScaled(18, 18, 18);
+
     glEnable(GL_TEXTURE_2D);
     glCallList(tank);
     glDisable(GL_TEXTURE_2D);
+
+    glPopMatrix();
 
     /* Post-processing */
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -168,6 +197,11 @@ void display()
 
     glUniform1i(uniform_color_texture, /*GL_TEXTURE*/1);
     glUniform1i(uniform_depth_texture, /*GL_TEXTURE*/2);
+    glUniform1f(uniform_focal_length, focalLength);
+    glUniform1f(uniform_focal_depth, focalDepth);
+    glUniform1f(uniform_fstop, fstop);
+    glUniform1f(uniform_screen_height, screen_height);
+    glUniform1f(uniform_screen_width, screen_width);
 
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, color_texture);
@@ -194,10 +228,18 @@ void display()
 
     glColor3f(1, 1, 1);
 
-    //  Display parameters
-    glWindowPos2i(5, 5);
-    Print("Angle=%d,%d  Dim=%.1f Projection=%s",
-          th, ph, dim, proj ? "Perpective" : "Orthogonal");
+    if (mode == 0) {
+        glWindowPos2i(5, 5);
+        Print("Angle=%d,%d", th, ph);
+    } else {
+        glWindowPos2i(5, 45);
+        Print("Focal Length=%.1fmm, Focus Distance=%.2fm, f-stop=%.1f", focalLength, focalDepth * unit / 1000.0, fstop);
+        glWindowPos2i(5, 25);
+        Print("Location (mm): x=%.1f, y=%.1f z=%.1f", fp_ex * unit, fp_ey * unit, fp_ez * unit);
+        glWindowPos2i(5, 5);
+        Print("Center of View (mm): x=%.1f, y=%.1f z=%.1f", vx * unit, vy * unit, vz * unit);
+    }
+
     //  Render the scene and make it visible
     ErrCheck("display");
     glFlush();
@@ -218,29 +260,45 @@ void idle()
  */
 void special(int key, int x, int y)
 {
-    //  Right arrow key - increase angle by 5 degrees
-    if (key == GLUT_KEY_RIGHT)
-        th += 5;
-        //  Left arrow key - decrease angle by 5 degrees
-    else if (key == GLUT_KEY_LEFT)
-        th -= 5;
-        //  Up arrow key - increase elevation by 5 degrees
-    else if (key == GLUT_KEY_UP)
-        ph += 5;
-        //  Down arrow key - decrease elevation by 5 degrees
-    else if (key == GLUT_KEY_DOWN)
-        ph -= 5;
-        //  PageUp key - increase dim
-    else if (key == GLUT_KEY_PAGE_DOWN)
-        dim += 0.1;
-        //  PageDown key - decrease dim
-    else if (key == GLUT_KEY_PAGE_UP && dim > 1)
-        dim -= 0.1;
-    //  Keep angles to +/-360 degrees
-    th %= 360;
-    ph %= 360;
+    if (mode == 0) {
+        //  Right arrow key - increase angle by 5 degrees
+        if (key == GLUT_KEY_RIGHT)
+            th += 5;
+            //  Left arrow key - decrease angle by 5 degrees
+        else if (key == GLUT_KEY_LEFT)
+            th -= 5;
+            //  Up arrow key - increase elevation by 5 degrees
+        else if (key == GLUT_KEY_UP)
+            ph += 5;
+            //  Down arrow key - decrease elevation by 5 degrees
+        else if (key == GLUT_KEY_DOWN)
+            ph -= 5;
+
+        //  Keep angles to +/-360 degrees
+        th %= 360;
+        ph %= 360;
+    } else {
+        if (key == GLUT_KEY_UP) {
+            fp_ez -= 2 * Cos(fp_th);
+            fp_ex -= 2 * Sin(fp_th);
+        } else if (key == GLUT_KEY_DOWN) {
+            fp_ez += 2 * Cos(fp_th);
+            fp_ex += 2 * Sin(fp_th);
+        } else if (key == GLUT_KEY_RIGHT) {
+            fp_th -= 2;
+        } else if (key == GLUT_KEY_LEFT) {
+            fp_th += 2;
+        } else if (key == GLUT_KEY_PAGE_UP && fp_ph < 90) {
+            fp_ph = (fp_ph + 5) % 360;
+        } else if (key == GLUT_KEY_PAGE_DOWN && fp_ph > -90) {
+            fp_ph = (fp_ph - 5) % 360;
+        }
+        fp_th %= 360;
+    }
+
     //  Update projection
-    Project(proj ? fov : 0, asp, dim);
+    Project(fov(focalLength), asp, 1);
+
     //  Tell GLUT it is necessary to redisplay the scene
     glutPostRedisplay();
 }
@@ -253,19 +311,36 @@ void key(unsigned char ch, int x, int y)
     //  Exit on ESC
     if (ch == 27)
         exit(0);
-        //  Reset view angle
-    else if (ch == '0')
-        th = ph = 0;
-        //  Toggle projection type
-    else if (ch == 'p' || ch == 'P')
-        proj = 1 - proj;
-        //  Light elevation
-    else if (ch == '+')
-        Ylight += 1;
-    else if (ch == '-')
-        Ylight -= 1;
+    else if (ch == 'p' || ch == 'P') {
+        mode = 1 - mode;
+    } else if (ch == '+' || ch == '=') {
+        if (focalLength < 200.0) {
+            focalLength += 1.0;
+        }
+    } else if (ch == '-' || ch == '_') {
+        if (focalLength > 12.0) {
+            focalLength -= 1.0;
+        }
+    } else if (ch == '[' || ch == '{') {
+        if (focalDepth > 5.5) {
+            focalDepth -= 5;
+        }
+    } else if (ch == ']' || ch == '}') {
+        if (focalDepth < 1000) {
+            focalDepth += 5;
+        }
+    } else if (ch == ',' || ch == '<') {
+        if (fstop > 1.2) {
+            fstop -= 0.1;
+        }
+    } else if (ch == '.' || ch == '>') {
+        if (fstop < 16.0) {
+            fstop += 0.1;
+        }
+    }
+
     //  Reproject
-    Project(proj ? fov : 0, asp, dim);
+    Project(fov(focalLength), asp, 1);
     //  Tell GLUT it is necessary to redisplay the scene
     glutPostRedisplay();
 }
@@ -283,7 +358,7 @@ void reshape(int width, int height)
     //  Set the viewport to the entire window
     glViewport(0, 0, width, height);
     //  Set projection
-    Project(proj ? fov : 0, asp, dim);
+    Project(fov(focalLength), asp, 1);
 
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, color_texture);
@@ -437,22 +512,13 @@ int main(int argc, char *argv[])
     postproc_shader = CreateShaderProg("postproc.vert", "postproc.frag");
 
     attribute_v_coord = glGetAttribLocation(postproc_shader, "v_coord");
-    if (attribute_v_coord == -1) {
-        fprintf(stderr, "Could not bind attribute v_coord\n");
-        return 0;
-    }
-
     uniform_color_texture = glGetUniformLocation(postproc_shader, "color_texture");
-    if (uniform_color_texture == -1) {
-        fprintf(stderr, "Could not bind uniform color_texture\n");
-        return 0;
-    }
-
     uniform_depth_texture = glGetUniformLocation(postproc_shader, "depth_texture");
-    if (uniform_depth_texture == -1) {
-        fprintf(stderr, "Could not bind uniform depth_texture\n");
-        return 0;
-    }
+    uniform_focal_depth = glGetUniformLocation(postproc_shader, "focalDepth");
+    uniform_focal_length = glGetUniformLocation(postproc_shader, "focalLength");
+    uniform_fstop = glGetUniformLocation(postproc_shader, "fstop");
+    uniform_screen_width = glGetUniformLocation(postproc_shader, "width");
+    uniform_screen_height = glGetUniformLocation(postproc_shader, "height");
 
     //  Pass control to GLUT so it can interact with the user
     ErrCheck("init");
