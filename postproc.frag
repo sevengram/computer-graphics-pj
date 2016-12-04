@@ -1,11 +1,11 @@
-uniform sampler2D color_texture;
-uniform sampler2D depth_texture;
-varying vec2 f_texcoord;
+uniform sampler2D colorTexture;
+uniform sampler2D depthTexture;
+varying vec2 texcoord;
 
 uniform float width;
 uniform float height;
 
-uniform float focalDepth;  //focal distance value in meters
+uniform float focusDistance;  //focal distance value in meters
 uniform float focalLength; //focal length in mm
 uniform float fstop; //f-stop value
 uniform int showFocus;
@@ -28,17 +28,17 @@ float blurDepth(vec2 coords)
     float d = 0.0;
     float kernel[9];
     vec2 offset[9];
-    vec2 wh = vec2(texel.x, texel.y) * dbsize;
+    vec2 p = vec2(texel.x, texel.y) * dbsize;
 
-    offset[0] = vec2(-wh.x,-wh.y);
-    offset[1] = vec2( 0.0, -wh.y);
-    offset[2] = vec2( wh.x -wh.y);
-    offset[3] = vec2(-wh.x,  0.0);
-    offset[4] = vec2( 0.0,   0.0);
-    offset[5] = vec2( wh.x,  0.0);
-    offset[6] = vec2(-wh.x, wh.y);
-    offset[7] = vec2( 0.0,  wh.y);
-    offset[8] = vec2( wh.x, wh.y);
+    offset[0] = vec2(-p.x,-p.y);
+    offset[1] = vec2( 0.0,-p.y);
+    offset[2] = vec2( p.x,-p.y);
+    offset[3] = vec2(-p.x, 0.0);
+    offset[4] = vec2( 0.0, 0.0);
+    offset[5] = vec2( p.x, 0.0);
+    offset[6] = vec2(-p.x, p.y);
+    offset[7] = vec2( 0.0, p.y);
+    offset[8] = vec2( p.x, p.y);
 
     kernel[0] = 1.0/16.0;
     kernel[1] = 2.0/16.0;
@@ -50,30 +50,28 @@ float blurDepth(vec2 coords)
     kernel[7] = 2.0/16.0;
     kernel[8] = 1.0/16.0;
 
-    for( int i=0; i<9; i++ ){
-        float tmp = texture2D(depth_texture, coords + offset[i]).r;
+    for(int i = 0; i < 9; i++){
+        float tmp = texture2D(depthTexture, coords + offset[i]).r;
         d += tmp * kernel[i];
     }
-
     return d;
 }
 
 vec3 color(vec2 coords,float blur)
 {
-    return texture2D(color_texture, coords).rgb;
+    return texture2D(colorTexture, coords).rgb;
 }
 
-vec3 showFocusZones(vec3 col, float blur, float depth)
+vec3 showFocusZones(vec3 color, float blur, float depth)
 {
     if (depth < 1000){
         float edge = 0.002*depth;
         float m = clamp(smoothstep(0.0, edge, blur), 0.0, 1.0);
-        float e = clamp(smoothstep(1.0 - edge, 1.0, blur), 0.0, 1.0);
-
-        col = mix(col,vec3(1.0,0.5,0.0),(1.0-m)*0.6);
-        col = mix(col,vec3(0.0,0.6,1.0),(m-e)*0.2);
+        float e = clamp(smoothstep(1.0-edge, 1.0, blur), 0.0, 1.0);
+        color = mix(color,vec3(1.0,0.5,0.0),(1.0-m)*0.6);
+        color = mix(color,vec3(0.0,0.6,1.0),(m-e)*0.2);
     }
-    return col;
+    return color;
 }
 
 float linearize(float depth)
@@ -84,19 +82,19 @@ float linearize(float depth)
 void main()
 {
     // scene depth calculation
-    float depth = linearize(texture2D(depth_texture,f_texcoord).x);
+    float depth = linearize(texture2D(depthTexture,texcoord).x);
 
     // blur the depth
-    depth = linearize(blurDepth(f_texcoord));
+    depth = linearize(blurDepth(texcoord));
 
-    float fDepth = focalDepth;
+    float dist = focusDistance;
     if (autoFocus == 1) {
-        fDepth = linearize(texture2D(depth_texture, autoFocusPoint).x);
+        dist = linearize(texture2D(depthTexture, autoFocusPoint).x);
     }
 
     //dof blur factor calculation
     float f = focalLength; //focal length in mm
-    float d = fDepth*1000.0; //focal plane in mm
+    float d = dist*1000.0; //focal plane in mm
     float o = depth*1000.0; //depth in mm
 
     float a = (o*f)/(o-f);
@@ -109,11 +107,11 @@ void main()
     float w = (1.0/width)*blur*maxblur;
     float h = (1.0/height)*blur*maxblur;
 
-    vec3 col = vec3(0.0);
+    vec3 color = vec3(0.0);
     if(blur < 0.05) {
-        col = texture2D(color_texture, f_texcoord).rgb;
+        color = texture2D(colorTexture, texcoord).rgb;
     } else {
-        col = texture2D(color_texture, f_texcoord).rgb;
+        color = texture2D(colorTexture, texcoord).rgb;
         float s = 1.0;
         int ringsamples;
         for (int i = 1; i <= rings; i += 1){
@@ -123,17 +121,15 @@ void main()
                 float pw = (cos(float(j)*step)*float(i));
                 float ph = (sin(float(j)*step)*float(i));
                 float p = 1.0;
-                col += color(f_texcoord + vec2(pw*w,ph*h),blur)*mix(1.0,(float(i))/(float(rings)),0.5)*p;
+                color += color(texcoord + vec2(pw*w,ph*h),blur)*mix(1.0,(float(i))/(float(rings)),0.5)*p;
                 s += 1.0*mix(1.0,(float(i))/(float(rings)),0.5)*p;
             }
         }
-        col /= s;
+        color /= s;
     }
-
     if (showFocus == 1) {
-        col = showFocusZones(col, blur, depth);
+        color = showFocusZones(color, blur, depth);
     }
-
-    gl_FragColor.rgb = col;
+    gl_FragColor.rgb = color;
     gl_FragColor.a = 1.0;
 }

@@ -549,10 +549,10 @@ int main(int argc, char *argv[])
     texture_shader = CreateShaderProg("texture.vert", "texture.frag");
     dof_shader = CreateShaderProg("postproc.vert", "postproc.frag");
 
-    attribute_v_coord = glGetAttribLocation(dof_shader, "v_coord");
-    uniform_color_texture = glGetUniformLocation(dof_shader, "color_texture");
-    uniform_depth_texture = glGetUniformLocation(dof_shader, "depth_texture");
-    uniform_focal_depth = glGetUniformLocation(dof_shader, "focalDepth");
+    attribute_v_coord = glGetAttribLocation(dof_shader, "coord");
+    uniform_color_texture = glGetUniformLocation(dof_shader, "colorTexture");
+    uniform_depth_texture = glGetUniformLocation(dof_shader, "depthTexture");
+    uniform_focal_depth = glGetUniformLocation(dof_shader, "focusDistance");
     uniform_focal_length = glGetUniformLocation(dof_shader, "focalLength");
     uniform_fstop = glGetUniformLocation(dof_shader, "fstop");
     uniform_screen_width = glGetUniformLocation(dof_shader, "width");
