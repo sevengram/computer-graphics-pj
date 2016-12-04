@@ -1,17 +1,48 @@
 Depth of Field Simulation
-
-Jianxiang Fan
 CSCI4229/5229 Fall 2016
 
+Jianxiang Fan
+jifa5239@colorado.edu
+
 >> Key bindings
-  p/P        Toggle between orthogonal & perspective projections
-  -/+        Decrease/increase light elevation
-  arrows     Change view angle
-  PgDn/PgUp  Zoom in and out
-  0          Reset view angle
-  ESC        Exit
+  up/down      Move forward/backward
+  left/right   Turn left/right
+  PgUp/PgDn    Look up/down (less than 90 degrees)
+  w/s          Move upward/downward
+  f            Toggle focus range overlay
+  a            Switch to auto focusing mode
+  m            Switch to manual focusing mode
+  +/-          Change focal length
+  [/]          Change focus distance (only in manual mode)
+  </>          Change f-stop
+
 
 >> How to run?
 
 $ make
 $ ./dof
+
+
+>> Tips
+
+* Move the camera and change its parameters (focal length, f-stop and focus distance)
+  to see the changes of depth of field.
+
+* In auto focusing mode, the camera focuses on the object which is in the center of
+  the view.
+
+* Press F to show the focal range overlay. Red zone - focus point. Blue zone - focus range.
+
+
+>> Reference
+
+OpenGL Insights - Chapter 15: Depth of Field with Bokeh Rendering
+http://http.developer.nvidia.com/GPUGems3/gpugems3_ch28.html
+https://blenderartists.org/forum/showthread.php?237488
+https://en.wikibooks.org/wiki/OpenGL_Programming/Post-Processing
+
+
+>> Obj file
+
+https://github.com/OpenGLInsights/OpenGLInsightsCode/tree/master/resources/models/tank
+

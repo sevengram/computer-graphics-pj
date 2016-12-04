@@ -1,28 +1,34 @@
 /*
- *  Depth of field shader
+ * Depth of Field
  *
- *  Key bindings:
- *  p/P        Toggle between perspective/orthogonal/First Person projections
+ * Key bindings:
  *
- *
- *  arrows     Change view angle
- *  0          Reset view angle
- *  ESC        Exit
+ * up/down      Move forward/backward
+ * left/right   Turn left/right
+ * PgUp/PgDn    Look up/down (less than 90 degrees)
+ * w/s          Move upward/downward
+ * f            Toggle focus range overlay
+ * a            Switch to auto focusing mode
+ * m            Switch to manual focusing mode
+ * +/-          Change focal length
+ * [/]          Change focus distance (only in manual mode)
+ * </>          Change f-stop
  */
 
 #include "CSCIx229.h"
 
 int mode = 1;       //  Projection type (0-Perspective 1-First Person)
 int th = -175;      //  Azimuth of view angle
-int ph = 5;         //  Elevation of view angle
+int ph = 20;        //  Elevation of view angle
 double asp = 1;     //  Aspect ratio
 int tank = 0;       //  Object
 GLuint texture_shader; //  Shader programs
 
-GLuint postproc_shader;
+GLuint dof_shader;
 GLint attribute_v_coord, uniform_color_texture, uniform_depth_texture;
 GLint uniform_focal_depth, uniform_focal_length, uniform_fstop;
 GLint uniform_screen_width, uniform_screen_height;
+GLint uniform_show_focus, uniform_auto_focus;
 
 GLuint fbo, color_texture, depth_texture, rbo_depth;
 GLuint vbo_fbo_vertices;
@@ -43,6 +49,9 @@ float filmY = 48;
 float focalDepth = 200;  //focal distance value in meters, but you may use autofocus option below
 float focalLength = 50; //focal length in mm
 float fstop = 2.8; //f-stop value
+
+int show_focus = 0;
+int auto_focus = 0;
 
 double fov(double fl)
 {
@@ -109,7 +118,7 @@ void free_resources()
     glDeleteTextures(1, &color_texture);
     glDeleteFramebuffers(1, &fbo);
     glDeleteBuffers(1, &vbo_fbo_vertices);
-    glDeleteProgram(postproc_shader);
+    glDeleteProgram(dof_shader);
 }
 
 /*
@@ -141,9 +150,9 @@ void display()
 
     //  Perspective - set eye position
     if (mode == 0) {
-        Ex = -100 * Sin(th) * Cos(ph);
-        Ey = +100 * Sin(ph);
-        Ez = +100 * Cos(th) * Cos(ph);
+        Ex = -350 * Sin(th) * Cos(ph);
+        Ey = +350 * Sin(ph);
+        Ez = +350 * Cos(th) * Cos(ph);
         gluLookAt(Ex, Ey, Ez, 0, 0, 0, 0, Cos(ph), 0);
     } else {
         vx = fp_ex - Sin(fp_th);
@@ -193,7 +202,7 @@ void display()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glUseProgram(postproc_shader);
+    glUseProgram(dof_shader);
 
     glUniform1i(uniform_color_texture, /*GL_TEXTURE*/1);
     glUniform1i(uniform_depth_texture, /*GL_TEXTURE*/2);
@@ -202,6 +211,8 @@ void display()
     glUniform1f(uniform_fstop, fstop);
     glUniform1f(uniform_screen_height, screen_height);
     glUniform1f(uniform_screen_width, screen_width);
+    glUniform1i(uniform_show_focus, show_focus);
+    glUniform1i(uniform_auto_focus, auto_focus);
 
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, color_texture);
@@ -227,17 +238,30 @@ void display()
     glUseProgram(0);
 
     glColor3f(1, 1, 1);
+    glWindowPos2i(5, screen_height - 40);
+    Print("Focusing Mode=%s", auto_focus ? "Auto" : "Manual");
+    glWindowPos2i(5, screen_height - 60);
+    Print("Focus Range Overlay=%s", show_focus ? "ON" : "OFF");
+    glWindowPos2i(5, screen_height - 20);
+    Print("Focal Length=%.1fmm, Focus Distance=%.2fm, f-stop=%.1f", focalLength, focalDepth * unit / 1000.0, fstop);
 
     if (mode == 0) {
+        glWindowPos2i(5, 25);
+        Print("Perspective");
         glWindowPos2i(5, 5);
         Print("Angle=%d,%d", th, ph);
     } else {
         glWindowPos2i(5, 45);
-        Print("Focal Length=%.1fmm, Focus Distance=%.2fm, f-stop=%.1f", focalLength, focalDepth * unit / 1000.0, fstop);
+        Print("First Person");
         glWindowPos2i(5, 25);
         Print("Location (mm): x=%.1f, y=%.1f z=%.1f", fp_ex * unit, fp_ey * unit, fp_ez * unit);
         glWindowPos2i(5, 5);
         Print("Center of View (mm): x=%.1f, y=%.1f z=%.1f", vx * unit, vy * unit, vz * unit);
+    }
+    if (auto_focus) {
+        glColor3f(1, 0, 0);
+        glWindowPos2i(screen_width / 2, screen_height / 2);
+        Print("x");
     }
 
     //  Render the scene and make it visible
@@ -285,13 +309,13 @@ void special(int key, int x, int y)
             fp_ez += 2 * Cos(fp_th);
             fp_ex += 2 * Sin(fp_th);
         } else if (key == GLUT_KEY_RIGHT) {
-            fp_th -= 2;
+            fp_th -= 1.2;
         } else if (key == GLUT_KEY_LEFT) {
-            fp_th += 2;
+            fp_th += 1.2;
         } else if (key == GLUT_KEY_PAGE_UP && fp_ph < 90) {
-            fp_ph = (fp_ph + 5) % 360;
+            fp_ph = (fp_ph + 2) % 360;
         } else if (key == GLUT_KEY_PAGE_DOWN && fp_ph > -90) {
-            fp_ph = (fp_ph - 5) % 360;
+            fp_ph = (fp_ph - 2) % 360;
         }
         fp_th %= 360;
     }
@@ -322,20 +346,34 @@ void key(unsigned char ch, int x, int y)
             focalLength -= 1.0;
         }
     } else if (ch == '[' || ch == '{') {
-        if (focalDepth > 5.5) {
+        if (focalDepth > 5.5 && !auto_focus) {
             focalDepth -= 5;
         }
     } else if (ch == ']' || ch == '}') {
-        if (focalDepth < 1000) {
+        if (focalDepth < 1000 && !auto_focus) {
             focalDepth += 5;
         }
     } else if (ch == ',' || ch == '<') {
-        if (fstop > 1.2) {
+        if (fstop > 1.25) {
             fstop -= 0.1;
         }
     } else if (ch == '.' || ch == '>') {
         if (fstop < 16.0) {
             fstop += 0.1;
+        }
+    } else if (ch == 'f' || ch == 'F') {
+        show_focus = 1 - show_focus;
+    } else if (ch == 'a' || ch == 'A') {
+        auto_focus = 1;
+    } else if (ch == 'm' || ch == 'M') {
+        auto_focus = 0;
+    } else if (ch == 'w' || ch == 'W') {
+        if (fp_ey < 300.0) {
+            fp_ey += 1.0;
+        }
+    } else if (ch == 's' || ch == 'S') {
+        if (fp_ey > 10.0) {
+            fp_ey -= 1.0;
         }
     }
 
@@ -489,7 +527,7 @@ int main(int argc, char *argv[])
     //  Request double buffered, true color window with Z buffering at 600x600
     glutInitDisplayMode(GLUT_RGB | GLUT_DEPTH | GLUT_DOUBLE);
     glutInitWindowSize(screen_width, screen_height);
-    glutCreateWindow("Shaders");
+    glutCreateWindow("CSCI5229 Project: Jianxiang Fan");
 #ifdef USEGLEW
     //  Initialize GLEW
     if (glewInit() != GLEW_OK) Fatal("Error initializing GLEW\n");
@@ -509,16 +547,18 @@ int main(int argc, char *argv[])
 
     //  Create Shader Programs
     texture_shader = CreateShaderProg("texture.vert", "texture.frag");
-    postproc_shader = CreateShaderProg("postproc.vert", "postproc.frag");
+    dof_shader = CreateShaderProg("postproc.vert", "postproc.frag");
 
-    attribute_v_coord = glGetAttribLocation(postproc_shader, "v_coord");
-    uniform_color_texture = glGetUniformLocation(postproc_shader, "color_texture");
-    uniform_depth_texture = glGetUniformLocation(postproc_shader, "depth_texture");
-    uniform_focal_depth = glGetUniformLocation(postproc_shader, "focalDepth");
-    uniform_focal_length = glGetUniformLocation(postproc_shader, "focalLength");
-    uniform_fstop = glGetUniformLocation(postproc_shader, "fstop");
-    uniform_screen_width = glGetUniformLocation(postproc_shader, "width");
-    uniform_screen_height = glGetUniformLocation(postproc_shader, "height");
+    attribute_v_coord = glGetAttribLocation(dof_shader, "v_coord");
+    uniform_color_texture = glGetUniformLocation(dof_shader, "color_texture");
+    uniform_depth_texture = glGetUniformLocation(dof_shader, "depth_texture");
+    uniform_focal_depth = glGetUniformLocation(dof_shader, "focalDepth");
+    uniform_focal_length = glGetUniformLocation(dof_shader, "focalLength");
+    uniform_fstop = glGetUniformLocation(dof_shader, "fstop");
+    uniform_screen_width = glGetUniformLocation(dof_shader, "width");
+    uniform_screen_height = glGetUniformLocation(dof_shader, "height");
+    uniform_show_focus = glGetUniformLocation(dof_shader, "showFocus");
+    uniform_auto_focus = glGetUniformLocation(dof_shader, "autoFocus");
 
     //  Pass control to GLUT so it can interact with the user
     ErrCheck("init");
