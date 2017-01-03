@@ -22,6 +22,32 @@ vec2 autoFocusPoint = vec2(0.5,0.5);
 float maxblur = 1.8;
 vec2 texel = vec2(1.0/width,1.0/height);
 
+vec3 get_color(vec2 coords,float blur)
+{
+    vec3 col = vec3(0.0);
+    col.r = texture2D(colorTexture,coords + vec2(0.0,1.0)*0.7*texel*blur).r;
+    col.g = texture2D(colorTexture,coords + vec2(-0.866,-0.5)*0.7*texel*blur).g;
+    col.b = texture2D(colorTexture,coords + vec2(0.866,-0.5)*0.7*texel*blur).b;
+    return col;
+}
+
+vec3 showFocusZones(vec3 color, float blur, float depth)
+{
+    if (depth < 1000.0f){
+        float edge = 0.002*depth;
+        float m = clamp(smoothstep(0.0, edge, blur), 0.0, 1.0);
+        float e = clamp(smoothstep(1.0-edge, 1.0, blur), 0.0, 1.0);
+        color = mix(color,vec3(1.0,0.5,0.0),(1.0-m)*0.6);
+        color = mix(color,vec3(0.0,0.6,1.0),(m-e)*0.2);
+    }
+    return color;
+}
+
+float linearize(float depth)
+{
+    return -zfar * znear / (depth * (zfar - znear) - zfar);
+}
+
 float blurDepth(vec2 coords)
 {
     float dbsize = 1.25;
@@ -57,28 +83,6 @@ float blurDepth(vec2 coords)
     return d;
 }
 
-vec3 color(vec2 coords,float blur)
-{
-    return texture2D(colorTexture, coords).rgb;
-}
-
-vec3 showFocusZones(vec3 color, float blur, float depth)
-{
-    if (depth < 1000){
-        float edge = 0.002*depth;
-        float m = clamp(smoothstep(0.0, edge, blur), 0.0, 1.0);
-        float e = clamp(smoothstep(1.0-edge, 1.0, blur), 0.0, 1.0);
-        color = mix(color,vec3(1.0,0.5,0.0),(1.0-m)*0.6);
-        color = mix(color,vec3(0.0,0.6,1.0),(m-e)*0.2);
-    }
-    return color;
-}
-
-float linearize(float depth)
-{
-    return -zfar * znear / (depth * (zfar - znear) - zfar);
-}
-
 void main()
 {
     // scene depth calculation
@@ -108,7 +112,7 @@ void main()
     float h = (1.0/height)*blur*maxblur;
 
     vec3 color = vec3(0.0);
-    if(blur < 0.05) {
+    if(blur < 0.05f) {
         color = texture2D(colorTexture, texcoord).rgb;
     } else {
         color = texture2D(colorTexture, texcoord).rgb;
@@ -121,7 +125,7 @@ void main()
                 float pw = (cos(float(j)*step)*float(i));
                 float ph = (sin(float(j)*step)*float(i));
                 float p = 1.0;
-                color += color(texcoord + vec2(pw*w,ph*h),blur)*mix(1.0,(float(i))/(float(rings)),0.5)*p;
+                color += get_color(texcoord + vec2(pw*w,ph*h),blur)*mix(1.0,(float(i))/(float(rings)),0.5)*p;
                 s += 1.0*mix(1.0,(float(i))/(float(rings)),0.5)*p;
             }
         }
